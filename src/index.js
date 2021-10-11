@@ -1,70 +1,65 @@
 const { BaseKonnector, log, requestFactory } = require('cozy-konnector-libs')
 
-const request = requestFactory({
-  cheerio: true,
-  json: false,
-  jar: true
+
+
+request = requestFactory({
+  cheerio: false,
+  json: false
 })
 
-const params = require('../konnector-dev-config.json')
 
 
-const baseUrl = "https://monespaceprive.msa.fr/lfy/web/msa/accueil?modalId=2"
+const baseUrl = "https://monespaceprive.msa.fr/lfy/web/msa"
 
-const coUrl = "https://monespaceprive.msa.fr/lfy/web/msa/accueil?modalId=2"
+const coUrl = baseUrl + "/accueil?modalId=2"
 
-module.exports = new BaseKonnector(async function fetch(fields) {
-  log('info', 'started')
-  const $ = request(coUrl)
+const roleLink = baseUrl + "/espace-prive?p_p_auth=wIHEuyby&p_p_id=choisirespace_WAR_z80techrwdportlet&p_p_lifecycle=0&p_p_state=exclusive&p_p_mode=view"
 
-  log('debug', $)
-  if (params) log('info', "Paramètres trouvés")
+module.exports = new BaseKonnector(start)
+  log('debug', 'hey')
+  async function start(fields) {
+    await authenticate(fields.login, fields.password)
+    log('info', 'set role')
+    await setRole(fields.role)
 
-  await authenticate.bind(this)(fields.login, fields.password)
-
-  const $accountPage = await login(fields)
-
-})
-
+}
 
 async function authenticate(username, password) {
-  return this.signin({
-    url: coUrl,
-    formSelector: 'form',
-    formData: {username, password},
-    validate: (statusCode,$ ,fullResponse) => {
-      return fullResponse.request.uri.href === "https://monespaceprive.msa.fr/lfy/web/msa/espace-prive?modalId=5" || log('err', 'mauvais credentials')
-    }
-  })
-}
-
-async function login(fields){
-
-  if(!fields.login.match(/^\d+$/)) {
-    log('err', 'mauvais credentials')
-    throw new Error('login failed')
-  }
-  log('info', 'connexion ...')
-  await request(coUrl)
-  const $req = await request({
-    uri: coUrl,
+  log('debug', 'auth')
+  return request({
     method: 'POST',
+    uri: coUrl,
     form: {
-      '_connexionauthent_WAR_z80techrwdportlet__58_login': fields.login,
-      '_connexionauthent_WAR_z80techrwdportlet__58_password': fields.password
-    }
+      _connexionauthent_WAR_z80techrwdportlet__58_login: username,
+      _connexionauthent_WAR_z80techrwdportlet__58_password: password
+    },
+    resolveWithFullResponse: true
   })
-  //log('debug', $req.html())
-
-  /* if(hasLogoutBtn($req)){
-    return $req
-  }else if ($req.html().includes('vérifiez votre identifiant et/ou votre mot de passe')){
-    throw new Error('Problème login')
-  }else {
-    throw new Error('Autre problème')
-  }
-   */
-
+    .catch(err => {
+      log('err', err)
+    })
+    .then(resp => {
+      log('info', resp)
+      return resp
+    })
 }
+
+async function setRole(role){
+  log('debug', role)
+  return request({
+    method: 'GET',
+    uri: roleLink,
+    resolveWithFullResponse: true
+  })
+    .catch(err => {
+      log('err', err)
+    })
+    .then(response => {
+      log('info', response)
+      return response
+    })
+}
+
+
 
 
