@@ -1,10 +1,10 @@
-const { BaseKonnector, log, requestFactory } = require('cozy-konnector-libs')
+const { BaseKonnector, log, requestFactory, scrape } = require('cozy-konnector-libs')
 
 
-
-request = requestFactory({
-  cheerio: false,
-  json: false
+const request = requestFactory({
+  cheerio: true,
+  json: false,
+  jar: true
 })
 
 
@@ -13,7 +13,7 @@ const baseUrl = "https://monespaceprive.msa.fr/lfy/web/msa"
 
 const coUrl = baseUrl + "/accueil?modalId=2"
 
-const roleLink = baseUrl + "/espace-prive?p_p_auth=wIHEuyby&p_p_id=choisirespace_WAR_z80techrwdportlet&p_p_lifecycle=0&p_p_state=exclusive&p_p_mode=view"
+const roleLink = baseUrl + "/accueil?modalId=5"
 
 module.exports = new BaseKonnector(start)
   log('debug', 'hey')
@@ -26,7 +26,7 @@ module.exports = new BaseKonnector(start)
 
 async function authenticate(username, password) {
   log('debug', 'auth')
-  return request({
+  const $ = await request({
     method: 'POST',
     uri: coUrl,
     form: {
@@ -39,25 +39,25 @@ async function authenticate(username, password) {
       log('err', err)
     })
     .then(resp => {
-      log('info', resp)
       return resp
     })
 }
 
 async function setRole(role){
   log('debug', role)
-  return request({
+  const $ = await request({
     method: 'GET',
     uri: roleLink,
     resolveWithFullResponse: true
   })
-    .catch(err => {
-      log('err', err)
-    })
-    .then(response => {
-      log('info', response)
-      return response
-    })
+  .catch(err => {
+    log('err', err)
+  })
+  .then(resp => {
+    log('info', resp)
+  })
+
+
 }
 
 
