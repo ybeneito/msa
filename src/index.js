@@ -1,5 +1,10 @@
 const { BaseKonnector, log, requestFactory, scrape } = require('cozy-konnector-libs')
 
+const CozyBrowser = require('cozy-konnector-libs/dist/libs/CozyBrowser')
+const browser = new CozyBrowser({
+  waitDuration: '5s'
+})
+
 
 const request = requestFactory({
   cheerio: true,
@@ -13,7 +18,13 @@ const baseUrl = "https://monespaceprive.msa.fr/lfy/web/msa"
 
 const coUrl = baseUrl + "/accueil?modalId=2"
 
-const roleLink = baseUrl + "/accueil?modalId=5"
+const roleUrl = "https://monespaceprive.msa.fr/lfy/web/msa-ain-rhone/accueil?modalId=5"
+
+const exploitant = "https://monespaceprive.msa.fr/lfy/group/espace-exploitants/mon-espace-prive"
+
+const particulier = "https://monespaceprive.msa.fr/lfy/group/espace-particuliers/mon-espace-prive"
+
+
 
 module.exports = new BaseKonnector(start)
   log('debug', 'hey')
@@ -39,23 +50,17 @@ async function authenticate(username, password) {
       log('err', err)
     })
     .then(resp => {
+     // log('info', resp)
       return resp
     })
 }
 
 async function setRole(role){
   log('debug', role)
-  const $ = await request({
-    method: 'GET',
-    uri: roleLink,
-    resolveWithFullResponse: true
+  const page = await browser.visit(roleUrl, {
+    waitDuration: '5s'
   })
-  .catch(err => {
-    log('err', err)
-  })
-  .then(resp => {
-    log('info', resp)
-  })
+  log('debug', page)
 
 
 }
