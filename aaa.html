@@ -17,6 +17,8 @@ const baseUrl = "https://monespaceprive.msa.fr/lfy/web/msa"
 
 const testUrl = "https://monespaceprive.msa.fr/z84authmsa/wsrest/auth"
 
+const test2 = "https://monespaceprive.msa.fr/lfy/web/msa-ain-rhone/accueil?p_p_id=connexionauthent_WAR_z80techrwdportlet&p_p_lifecycle=1&p_p_state=exclusive&p_p_mode=view&_connexionauthent_WAR_z80techrwdportlet_redirect=undefined"
+
 const coUrl = "https://monespaceprive.msa.fr/lfy/web/msa/accueil?modalId=2"
 
 const roleUrl = "https://monespaceprive.msa.fr/lfy/web/msa/accueil?modalId=5"
@@ -43,8 +45,6 @@ async function authenticate(username, password) {
   log('debug', 'auth')
   //browser.assert.attribute('#connexionauthent', 'method', 'post')
   await browser.visit(coUrl, {
-
-    followRedirects: true,
     followAllRedirects: true,
     resolveWithFullResponse: true
   })
@@ -52,9 +52,10 @@ async function authenticate(username, password) {
       log('err', err)
     })
     .then(resp => {
-      log('debug',"response:   " + resp)
+      //log('debug',"response:   " + resp)
+      const cookies = browser.cookies
       log('debug', 'browser:      ' + browser.location)
-      log('debug', browser.cookies)
+      log('debug', cookies)
     })
 }
 
@@ -68,20 +69,20 @@ async function setRole(role){
       const clean = id.split(';')[0]
       log('debug', "test      " + cookies)
       log('debug', 'id:    ' + clean)
-      const docsPage = `https://monespaceprive.msa.fr/${clean}/ConsultationGenerique.do`
+      const docsPage = test2
       docsHome(docsPage)
     })
     .catch(err => {
       log('err', err)
     })
 
-
 }
 
 async function docsHome(docsPage){
   await browser.visit(docsPage)
     .then(res => {
-      log('info', 'last      ' + browser)
+      const brow = browser
+      log('info', 'last      ' + brow)
       log('debug', res)
     })
     .catch(err => {
