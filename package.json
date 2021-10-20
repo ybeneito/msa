@@ -39,6 +39,9 @@
   "dependencies": {
     "cheerio": "^1.0.0-rc.10",
     "cozy-konnector-libs": "4.42.2",
+    "got": "^11.8.2",
+    "got-scraping": "^3.2.6",
+    "json-colorizer": "^2.2.2",
     "zombie": "^6.1.4"
   },
   "devDependencies": {
