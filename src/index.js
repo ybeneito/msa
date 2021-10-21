@@ -1,314 +1,117 @@
-process.env.SENTRY_DSN =
-  process.env.SENTRY_DSN ||
-  'https://be591cf27cd348eeabc4d56b14bf12ac@sentry.cozycloud.cc/132'
 
-const { BaseKonnector, utils, errors, log } = require('cozy-konnector-libs')
-const firstGot = require('../libs/got')
-const got = firstGot.extend({
-  decompress: false
+
+const { attr } = require('cheerio/lib/api/attributes')
+const {
+  BaseKonnector,
+  log,
+  requestFactory,
+  scrape,
+  saveBills,
+  saveFiles
+} = require('cozy-konnector-libs')
+
+let request = requestFactory()
+
+request = requestFactory({
+  // debug: true,
+  cheerio: true,
+  json: false,
+  jar: true
 })
-const courrierUrl = 'https://courriers.pole-emploi.fr'
-const candidatUrl = 'https://candidat.pole-emploi.fr'
-const loginUrl = 'https://monespaceprive.msa.fr/lfy/web/msa/accueil'
-const { parse, subYears, format } = require('date-fns')
-const gotScrape = require('../libs/scrape')
+
+const CozyBrowser = require('cozy-konnector-libs/dist/libs/CozyBrowser')
+
+const baseUrl = 'https://monespaceprive.msa.fr'
+
+const linkRole = []
+
+const downloadLinks = []
+
+const documents = []
 
 module.exports = new BaseKonnector(start)
-
+log('debug', 'hey')
 async function start(fields) {
   await this.deactivateAutoSuccessfulLogin()
-  await authenticate(fields)
-  await this.notifySuccessfulLogin()
 
-  const avisSituation = await fetchAvisSituation()
-  await this.saveFiles([avisSituation], fields, {
-    contentType: true,
-    fileIdAttributes: ['vendorRef']
+  // Authentification
+  await authenticateThroughCheerio.bind(this)({
+    login: fields.login,
+    password: fields.password
   })
+  // Choix du rôle
+  if(fields.role === "Exploitant"){
+    await exploitant(documents)
 
-  process.exit(0)
-  const docs = await fetchCourriers()
-
-  const filesWithBills = docs.filter(isFileWithBills)
-  if (filesWithBills.length) {
-    log('info', 'files with bills')
-    await this.saveBills(filesWithBills, fields, {
-      fileIdAttributes: ['vendorRef'],
-      linkBankOperations: false,
-      contentType: 'application/pdf',
-      processPdf: parseAmountAndDate
-    })
+  }else if(fields.role === "Particulier") {
+    await particulier()
+  }else {
+    log('err', "Veuillez entrer un role")
   }
-
-  await this.saveFiles(docs, fields, {
-    fileIdAttributes: ['vendorRef'],
-    contentType: 'application/pdf'
-  })
 }
 
-function isFileWithBills(doc) {
-  return doc.type === 'Relevé de situation'
-}
+async function authenticateThroughCheerio(form) {
+  try {
+    await request({ url: baseUrl + '/lfy/web/msa/accueil?modalId=2' })
+    await request({ url: baseUrl + '/z84authmsa/wsrest/auth', method: 'POST', form })
+    let $ = await request({ url: baseUrl + '/lfy/web/msa/accueil?p_p_id=connexionauthent_WAR_z80techrwdportlet&p_p_lifecycle=1&p_p_state=exclusive&p_p_mode=view&_connexionauthent_WAR_z80techrwdportlet_redirect=undefined' })
+    const html = $.html()
+    const start = html.indexOf('p_p_auth=')
+    const end = html.substring(start).indexOf('"')
+    const query = html.substring(start, start + end)
+    $ = await request({ url: baseUrl + '/lfy/web/msa/accueil?' + query })
+    $('a[href]').each(async function(index, link) {
+      const href = link.attribs['href']
+      linkRole.push(href)
+  })}
+  catch (error) {
+        console.log(error)
+    }}
 
-async function fetchAvisSituation() {
-  return {
-    fetchFile: async () => {
-      // Mandatory requests to activate the download of Avis_de_situation
-      const resp = await got(
-        'https://candidat.pole-emploi.fr/candidat/situationadministrative/suiviinscription/attestation/mesattestations/true'
-      )
-      await got.post(candidatUrl + resp.$('#Formulaire').attr('action'), {
-        form: {
-          ...resp.getFormData('#Formulaire'),
-          attestationsSelectModel: 'AVIS_DE_SITUATION'
+async function exploitant(documents){
+  let exploitantPage = await request({url: linkRole[1]})
+  exploitantPage('a[href]').each(async function(i, link) {
+    const href = link.attribs['href']
+    if(href.includes('Z84CNSDOCNOT')) {
+      // Liens de téléchargement directs
+      const $ = await request({url: href})
+      $('a[href]').each(async function(i, link) {
+        const links = link.attribs['href']
+        if(links.includes('DetailPdf')){
+          downloadLinks.push(baseUrl + links)
         }
       })
 
-      const link = `${candidatUrl}/candidat/situationadministrative/suiviinscription/attestation/recapitulatif:telechargerattestationpdf`
-      const test = await got.head(link)
-      if (test.url.includes('attestation/erreur')) {
-        throw new Error('No avis de situation to fetch')
+      log('debug', typeof(downloadLinks[0]))
+
+    for (let i = 0; i < downloadLinks.length; i++) {
+      const doc = {
+        "fileurl": `${downloadLinks[i]}`,
+        "filename": `document${i}.pdf`,
       }
-      return got.stream(link)
-    },
-    shouldReplaceFile: () => true,
-    filename: `${utils.formatDate(
-      new Date()
-    )}_polemploi_Dernier avis de situation.pdf`,
-    vendorRef: 'AVIS_DE_SITUATION'
-  }
-}
-
-async function fetchCourriers() {
-  try {
-    let resp = await got(
-      'https://authentification-candidat.pole-emploi.fr/compte/redirigervers?url=https://courriers.pole-emploi.fr/courriersweb/acces/AccesCourriers'
-    )
-
-    resp = await got.post(resp.$('form').attr('action'), {
-      form: resp.getFormData('form')
+      documents.push(doc)
+    }
+    saveBills(documents, "/", {
+      sourceAccount: "majelys",
+      sourceAccountIdentifier: "majelys",
+      identifier: ['MSA'],
+      linkBankOperations: false,
     })
+     log('info', documents)
 
-    // get a maximum of files (minus 10 years)
-    const form = resp.getFormData('form#formulaire')
-    form.dateDebut = format(
-      subYears(parse(form.dateDebut, 'dd/MM/yyyy', new Date()), 10),
-      'dd/MM/yyyy'
-    )
+    // Tableau des élements téléchargeables
+    // const colCentre = docPage('table.ARRAY1>tbody>tr>td>table>tbody>tr>.COL_CENTRE')
+    // const colGauche = docPage('table.ARRAY1>tbody>tr>td>table>tbody>tr>.COL_GAUCHE')
 
-    resp = await got.post(
-      courrierUrl + resp.$('form#formulaire').attr('action'),
-      { form }
-    )
 
-    let docs = []
-    while (resp) {
-      const result = await getPage(resp)
-      resp = result.nextResp
-      docs = [...docs, ...result.docs]
+
+    }else{
+      log('err', 'Lien non trouvé ...')
     }
-    return docs
-  } catch (err) {
-    if (err.response && err.response.statusCode === 500) {
-      log('error', err.message)
-      throw new Error(errors.VENDOR_DOWN)
-    } else {
-      throw err
-    }
-  }
+  })
+
+
 }
 
-async function getPage(resp) {
-  const fetchFile = async doc =>
-    got.stream(courrierUrl + (await got(doc.url)).$('iframe').attr('src'))
-  const docs = resp
-    .scrape(
-      {
-        date: {
-          sel: '.date',
-          parse: date =>
-            date
-              .split('/')
-              .reverse()
-              .join('-')
-        },
-        type: '.avisPaie',
-        url: {
-          sel: '.Telechar a',
-          attr: 'href',
-          parse: href => `${courrierUrl}${href}`
-        },
-        vendorRef: {
-          sel: '.Telechar a',
-          attr: 'href',
-          parse: href => href.split('/').pop()
-        }
-      },
-      'table tbody tr'
-    )
-    .map(doc => ({
-      ...doc,
-      fetchFile,
-      filename: `${utils.formatDate(doc.date)}_polemploi_${doc.type}_${
-        doc.vendorRef
-      }.pdf`,
-      vendor: 'Pole Emploi'
-    }))
 
-  const nextLink =
-    '/courriersweb/mescourriers.bloclistecourriers.numerotation.boutonnext'
-  const hasNext = Boolean(resp.$(`.pagination a[href='${nextLink}']`).length)
-  let nextResp = false
 
-  if (hasNext) nextResp = await got(courrierUrl + nextLink)
-
-  return { docs, nextResp }
-}
-
-async function authenticate({ login, password }) {
-  try {
-    const state = {
-      state: randomizeString(16),
-      nonce: randomizeString(16)
-    }
-
-    log('debug', login )
-
-    const creds = {
-      login: login,
-      password: password
-    }
-
-    const data = await got.post("https://monespaceprive.msa.fr/z84authmsa/wsrest/auth",
-       creds
-    )
-
-    log('debug', "test:        " + data.body)
-    let authBody = await got
-      .post(
-        loginUrl,
-        {
-          headers: {
-            'X-Requested-With': 'XMLHttpRequest'
-          }
-        }
-      )
-      .json()
-
-    authBody.callbacks[0].input[0].value = login
-
-    authBody = await got
-      .post(
-        loginUrl,
-        {
-          json: authBody,
-          headers: {
-            'X-Requested-With': 'XMLHttpRequest'
-          }
-        }
-      )
-      .json()
-
-    authBody.callbacks[1].input[0].value = password
-
-    const zipCodeCb = authBody.callbacks.find(cb =>
-      cb.output[0].value.includes('Code postal')
-    )
-    if (zipCodeCb) {
-      if (!zipcode) {
-        log('error', 'zipcode is missing and it is needed by pole emploi')
-        throw new Error(errors.LOGIN_FAILED)
-      }
-      zipCodeCb.input[0].value = zipcode
-    }
-    authBody = await got
-      .post(
-        loginUrl,
-        {
-          json: authBody,
-          headers: {
-            'X-Requested-With': 'XMLHttpRequest'
-          }
-        }
-      )
-      .json()
-
-    await got.defaults.options.cookieJar.setCookie(
-      `idutkes=${authBody.tokenId}`,
-      'https://authentification-candidat.pole-emploi.fr',
-      {}
-    )
-    await got
-      .post(
-        'https://authentification-candidat.pole-emploi.fr/connexion/json/users?_action=idFromSession&realm=/individu',
-        {
-          headers: {
-            'X-Requested-With': 'XMLHttpRequest'
-          }
-        }
-      )
-      .json()
-  } catch (err) {
-    if (err.response && err.response.statusCode === 401)
-      throw new Error(errors.LOGIN_FAILED)
-    else throw err
-  }
-}
-
-// alg taken directly form the website
-function randomizeString(e) {
-  for (
-    var t = [''],
-      n = '0123456789ABCDEFGHIJKLMNOPQRSTUVXYZabcdefghijklmnopqrstuvwxyz-',
-      r = 0;
-    r < e;
-    r++
-  ) {
-    t.push(n[Math.floor(Math.random() * n.length)])
-  }
-  return t.join('')
-}
-
-function parseAmountAndDate(entry, text) {
-  // find date and amount lines in pdf
-  const lines = text.split('\n')
-  const dateLines = lines
-    .map(line => line.match(/^REGLEMENT\sDU\s(.*)$/))
-    .filter(Boolean)
-  if (dateLines.length === 0) {
-    log('warn', `found no paiment dates`)
-  }
-  const amountLines = lines
-    .map(line => line.match(/^Règlement de (.*) euros par (.*)$/))
-    .filter(Boolean)
-  if (amountLines.length === 0) {
-    log('warn', `found no paiment amounts`)
-  }
-
-  // generate bills data from it. We can multiple bills associated to one file
-  const bills = []
-  for (let i = 0; i < dateLines.length; i++) {
-    const date = parse(dateLines[i].slice(1, 2).pop(), 'dd/MM/yyyy', new Date())
-    const amount = parseFloat(
-      amountLines[i]
-        .slice(1, 2)
-        .pop()
-        .replace(',', '.')
-    )
-    if (date && amount) {
-      bills.push({ ...entry, date, amount, isRefund: true })
-    }
-  }
-
-  if (bills.length === 0) {
-    // first bills is associated to the current entry
-    entry.__ignore = true
-    log('warn', 'could not find any date or amount in this document')
-  } else {
-    // next bills will generate a new entry associated to the same file
-    Object.assign(entry, bills.shift())
-    return bills
-  }
-
-  return entry
-}
